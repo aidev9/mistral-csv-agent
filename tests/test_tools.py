@@ -36,7 +36,13 @@ def ctx(session_id: str) -> agents.ToolCallbackContext:
 
 def load(session_id: str = "s-load") -> dict:
     return asyncio.run(
-        load_csv(ctx(session_id), file_id_or_url=FILE_ID, file_name="sales.csv", csv_text=CSV_TEXT)
+        load_csv(
+            ctx(session_id),
+            file_id_or_url=FILE_ID,
+            file_name="sales.csv",
+            folder="data",
+            csv_text=CSV_TEXT,
+        )
     )
 
 
@@ -66,6 +72,27 @@ def test_parse_csv_types_and_missing():
 def test_parse_csv_sniffs_semicolons():
     _, rows = parse_csv("a;b\n1;2\n3;4\n")
     assert rows == [{"a": 1, "b": 2}, {"a": 3, "b": 4}]
+
+
+def test_load_csv_only_accepts_data_folder():
+    with pytest.raises(agents.ToolError):
+        asyncio.run(
+            load_csv(
+                ctx("s-folder"),
+                file_id_or_url=FILE_ID,
+                folder="Downloads",
+                csv_text=CSV_TEXT,
+            )
+        )
+    result = asyncio.run(
+        load_csv(
+            ctx("s-folder"),
+            file_id_or_url=FILE_ID,
+            folder="Data",
+            csv_text=CSV_TEXT,
+        )
+    )
+    assert result["loaded"] is True
 
 
 def test_load_csv_reports_schema():
@@ -207,6 +234,7 @@ def test_load_replaces_previous_dataset():
         load_csv(
             ctx("s-replace"),
             file_id_or_url=FILE_ID,
+            folder="data",
             file_name="other.csv",
             csv_text="x\n1\n",
         )

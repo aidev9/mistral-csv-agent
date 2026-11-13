@@ -20,6 +20,7 @@ from pydantic import Field
 from mistralai import agents
 
 MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024
+ALLOWED_FOLDER = "data"
 MISSING_VALUES = {"", "na", "n/a", "null", "none", "nan"}
 OPERATORS = (
     "eq",
@@ -314,6 +315,15 @@ async def load_csv(
             )
         ),
     ],
+    folder: Annotated[
+        str,
+        Field(
+            description=(
+                "Name of the Google Drive folder that contains the file, exactly as "
+                "your Drive connector tools report it. Only 'data' is accepted."
+            )
+        ),
+    ],
     file_name: Annotated[
         str | None,
         Field(description="The file's name, when you know it from Google Drive."),
@@ -331,12 +341,22 @@ async def load_csv(
 ) -> dict[str, Any]:
     """Load a CSV file from Google Drive into this session for analysis.
 
-    Call it with just the Drive link or file id first: the tool downloads the
-    file directly when it is shared by link. If the download fails, read the
-    file's content with your Google Drive connector tools and call load_csv
-    again, passing that content as csv_text. Loading a new file replaces the
-    previously loaded one. The result summarizes the file and its columns.
+    Only files inside the Google Drive folder named 'data' may be loaded: check
+    where the file lives with your Google Drive connector tools first, and pass
+    that folder as the folder argument. Call it with just the Drive link or file
+    id and the folder first: the tool downloads the file directly when it is
+    shared by link. If the download fails, read the file's content with your
+    Google Drive connector tools and call load_csv again, passing that content
+    as csv_text. Loading a new file replaces the previously loaded one. The
+    result summarizes the file and its columns.
     """
+    if folder.strip().lower() != ALLOWED_FOLDER:
+        raise agents.ToolError(
+            f"This agent may only analyze CSV files inside the Google Drive folder "
+            f"named '{ALLOWED_FOLDER}'. This file is in {folder!r}. Refuse politely "
+            "and ask the user to move the file into that folder, or to point at a "
+            "file that is already there."
+        )
     file_id = extract_file_id(file_id_or_url)
     if csv_text is not None:
         data = csv_text.encode("utf-8")
