@@ -8,6 +8,7 @@ only pick one of these tools with fixed arguments.
 from __future__ import annotations
 
 import csv
+import datetime
 import io
 import re
 import urllib.request
@@ -48,6 +49,38 @@ class Dataset:
     file_name: str
     columns: list[str]
     rows: list[dict[str, Any]]
+
+
+DATE_FORMATS = ("%Y/%m/%d", "%m/%d/%Y", "%d-%m-%Y", "%d.%m.%Y")
+BUCKETS = ("day", "week", "month")
+
+
+def _parse_date(value: Any) -> datetime.date | None:
+    if isinstance(value, str):
+        text = value.strip()
+        try:
+            return datetime.date.fromisoformat(text)
+        except ValueError:
+            pass
+        try:
+            return datetime.datetime.fromisoformat(text).date()
+        except ValueError:
+            pass
+        for fmt in DATE_FORMATS:
+            try:
+                return datetime.datetime.strptime(text, fmt).date()
+            except ValueError:
+                pass
+    return None
+
+
+def _bucket_key(date: datetime.date, bucket: str) -> str:
+    if bucket == "day":
+        return date.isoformat()
+    if bucket == "week":
+        iso = date.isocalendar()
+        return f"{iso.year}-W{iso.week:02d}"
+    return f"{date.year:04d}-{date.month:02d}"
 
 
 _DATASETS: dict[str, Dataset] = {}
@@ -480,6 +513,7 @@ async def filter_rows(
     return {
         "dataset": _dataset_info(dataset),
         "matched": len(matching),
+        "matched_share": round(len(matching) / len(dataset.rows), 4) if dataset.rows else 0.0,
         "total_rows": len(dataset.rows),
         "returned": min(len(matching), limit),
         "rows": matching[:limit],
@@ -579,12 +613,99 @@ async def group_by_aggregate(
                 "ordered."
             ) from None
     limit = max(1, min(int(limit), 200))
+    if rows:
+        for item in results:
+            if "count" in item:
+                item["count_share"] = round(item["count"] / len(rows), 4)
     return {
         "dataset": _dataset_info(dataset),
         "rows_used": len(rows),
         "group_count": len(results),
         "returned": min(len(results), limit),
         "groups": results[:limit],
+    }
+
+
+@agents.tool(model_access="direct")
+async def time_trends(
+    ctx: agents.ToolCallbackContext,
+    /,
+    date_column: Annotated[str, Field(description="Column containing dates, such as a ticket creation date.")],
+    bucket: Annotated[
+        str, Field(description="Time bucket: 'day', 'week' or 'month'.")
+    ] = "month",
+    metric_column: Annotated[
+        str | None,
+        Field(description="Optional numeric column to aggregate per bucket.")
+    ] = None,
+    metric_fn: Annotated[
+        str,
+        Field(description="One of: count, sum, mean, median, min, max, nunique. count is the number of rows per bucket.")
+    ] = "count",
+    filters: Annotated[
+        list[dict[str, Any]] | None,
+        Field(
+            description=(
+                "Optional conditions applied before bucketing, each like "
+                '{"column": "priority", "operator": "eq", "value": "P1"}, using '
+                "the same operators as filter_rows."
+            )
+        ),
+    ] = None,
+    limit: Annotated[
+        int, Field(description="Maximum number of buckets to return, 1-200.")
+    ] = 60,
+) -> dict[str, Any]:
+    """Bucket rows by date and compute a metric per bucket, to reveal trends and spikes.
+
+    Returns the metric for each chronological bucket, the peak bucket, and the
+    metric's min, max and mean across buckets. Rows whose date cannot be parsed
+    are excluded and counted.
+    """
+    dataset = _dataset_for(ctx.session.id)
+    _require_column(dataset, date_column)
+    if bucket not in BUCKETS:
+        raise agents.ToolError(
+            f"Unknown bucket {bucket!r}. Available buckets: {', '.join(BUCKETS)}."
+        )
+    if metric_fn not in AGGREGATIONS:
+        raise agents.ToolError(
+            f"Unknown metric {metric_fn!r}. Available metrics: {', '.join(AGGREGATIONS)}."
+        )
+    if metric_fn != "count":
+        _require_column(dataset, metric_column)
+    rows = _filtered_rows(dataset, filters)
+    groups: dict[str, list[dict[str, Any]]] = {}
+    unparseable = 0
+    for row in rows:
+        date = _parse_date(row.get(date_column))
+        if date is None:
+            unparseable += 1
+            continue
+        groups.setdefault(_bucket_key(date, bucket), []).append(row)
+    series = []
+    for key in sorted(groups):
+        bucket_rows = groups[key]
+        if metric_fn == "count":
+            value: Any = len(bucket_rows)
+        else:
+            value = _aggregate([row.get(metric_column) for row in bucket_rows], metric_fn)
+        series.append({"bucket": key, "value": value})
+    values = [entry["value"] for entry in series if entry["value"] is not None]
+    peak = max(series, key=lambda entry: entry["value"]) if values else None
+    limit = max(1, min(int(limit), 200))
+    return {
+        "dataset": _dataset_info(dataset),
+        "rows_used": len(rows),
+        "rows_without_date": unparseable,
+        "bucket": bucket,
+        "metric": "count" if metric_fn == "count" else f"{metric_fn}_{metric_column}",
+        "bucket_count": len(series),
+        "series": series[:limit],
+        "peak": peak,
+        "metric_min": min(values) if values else None,
+        "metric_max": max(values) if values else None,
+        "metric_mean": round(sum(values) / len(values), 4) if values else None,
     }
 
 

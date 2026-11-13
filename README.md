@@ -9,14 +9,17 @@ it answers with real numbers from your data.
 - **Google Drive connector** (`google_drive_mcp`): the agent uses your own Google Drive
   connection to find files and, when a file is not shared by link, to read its content.
   It acts as the user who runs the session (on-behalf-of), so everyone sees their own Drive.
+  Only CSVs inside the Drive folder named `data` may be loaded — enforced in the agent's
+  instructions and, hard, in `load_csv` itself, which rejects any other folder.
 - **Fixed analysis tools** — no code execution, no shell, no sandbox. The model can only
   call these deterministic Python functions with fixed arguments:
   | Tool | What it does |
   | --- | --- |
-  | `load_csv` | Loads a CSV from a Drive link/file id (direct download when shared by link, otherwise via the connector's file content) |
+  | `load_csv` | Loads a CSV from a Drive link/file id (direct download when shared by link, otherwise via the connector's file content); rejects files outside the `data` folder |
   | `describe_columns` | Per column: inferred type, nulls, distinct count, min/mean/max or most frequent values |
-  | `filter_rows` | Counts and samples rows matching one condition (12 operators, case-insensitive strings) |
-  | `group_by_aggregate` | Group-by with count/sum/mean/median/min/max/nunique, optional filters, ordering and limits |
+  | `filter_rows` | Counts and samples rows matching one condition (12 operators, case-insensitive strings), with share of total |
+  | `group_by_aggregate` | Group-by (multi-column cross-tabs) with count/sum/mean/median/min/max/nunique, optional filters, ordering, limits, and share of total per group |
+  | `time_trends` | Buckets rows by day/week/month on a date column and computes a metric per bucket, with peak and spread — for spikes, drift and seasonality |
   | `preview_rows` | Shows a slice of raw rows |
 - **Stateful sessions**: the dataset and the whole conversation live in a durable session
   stored by Mistral, so follow-ups remember the file and everything discussed. If a worker

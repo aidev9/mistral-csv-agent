@@ -13,6 +13,7 @@ from analyst_tools import (
     load_csv,
     parse_csv,
     preview_rows,
+    time_trends,
 )
 
 SAMPLE = """name,region,sales,notes
@@ -210,6 +211,100 @@ def test_group_by_aggregate_rejects_bad_input():
                 ctx("s-load"), group_by=["wrong"], aggregations=[{"fn": "count"}]
             )
         )
+
+
+def test_filter_rows_reports_share():
+    load()
+    result = asyncio.run(
+        filter_rows(ctx("s-load"), column="region", operator="eq", value="EMEA")
+    )
+    assert result["matched"] == 3
+    assert result["matched_share"] == pytest.approx(0.5)
+
+
+def test_group_by_aggregate_reports_count_share():
+    load()
+    result = asyncio.run(
+        group_by_aggregate(
+            ctx("s-load"), group_by=["region"], aggregations=[{"fn": "count"}]
+        )
+    )
+    groups = {group["region"]: group for group in result["groups"]}
+    assert groups["EMEA"]["count_share"] == pytest.approx(0.5)
+    assert groups["AMER"]["count_share"] == pytest.approx(round(2 / 6, 4))
+
+
+def test_time_trends_monthly_counts():
+    tickets = """created_date,priority,hours
+2024-01-05,P1,10
+2024-01-20,P2,20
+2024-02-01,P1,5
+2024-02-10,P1,15
+not-a-date,P1,1
+2024-03-02,P2,30
+"""
+    asyncio.run(
+        load_csv(
+            ctx("s-time"),
+            file_id_or_url=FILE_ID,
+            folder="data",
+            file_name="tickets.csv",
+            csv_text=tickets,
+        )
+    )
+    result = asyncio.run(time_trends(ctx("s-time"), date_column="created_date"))
+    assert result["bucket"] == "month"
+    assert result["rows_used"] == 6
+    assert result["rows_without_date"] == 1
+    assert result["series"] == [
+        {"bucket": "2024-01", "value": 2},
+        {"bucket": "2024-02", "value": 2},
+        {"bucket": "2024-03", "value": 1},
+    ]
+    assert result["peak"] == {"bucket": "2024-01", "value": 2}
+    assert result["metric_mean"] == pytest.approx(1.6667)
+
+
+def test_time_trends_weekly_metric_with_filter():
+    tickets = """created_date,priority,hours
+2024-01-01,P1,10
+2024-01-02,P1,20
+2024-01-08,P2,30
+2024-01-09,P1,40
+"""
+    asyncio.run(
+        load_csv(
+            ctx("s-week"),
+            file_id_or_url=FILE_ID,
+            folder="data",
+            file_name="tickets.csv",
+            csv_text=tickets,
+        )
+    )
+    result = asyncio.run(
+        time_trends(
+            ctx("s-week"),
+            date_column="created_date",
+            bucket="week",
+            metric_column="hours",
+            metric_fn="sum",
+            filters=[{"column": "priority", "operator": "eq", "value": "P1"}],
+        )
+    )
+    assert result["rows_used"] == 3
+    assert result["series"] == [
+        {"bucket": "2024-W01", "value": 30},
+        {"bucket": "2024-W02", "value": 40},
+    ]
+    assert result["metric"] == "sum_hours"
+
+
+def test_time_trends_rejects_bad_input():
+    load()
+    with pytest.raises(agents.ToolError):
+        asyncio.run(time_trends(ctx("s-load"), date_column="wrong_column"))
+    with pytest.raises(agents.ToolError):
+        asyncio.run(time_trends(ctx("s-load"), date_column="name", bucket="quarter"))
 
 
 def test_preview_rows():
