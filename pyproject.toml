@@ -1,0 +1,24 @@
+[project]
+name = "mistral-csv-agent"
+version = "0.1.0"
+description = "Conversational CSV data analyst for files stored in Google Drive, built on the Mistral Agents SDK"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "mistralai-agents>=1.1.2,<1.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.mistralai.agents]
+entrypoint = "main:agent"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.uv]
+package = false
