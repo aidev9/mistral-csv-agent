@@ -87,7 +87,7 @@ discussed, without asking again.
 
 agent = agents.Agent(
     model="mistral-large-4",
-    name="drive-data-analyst",
+    name="ticket-analyst",
     description=(
         "Senior support-ticket analyst for ticket CSVs in the Google Drive 'data' "
         "folder: root causes, priorities and automation opportunities, with real numbers."

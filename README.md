@@ -1,4 +1,4 @@
-# drive-data-analyst
+# ticket-analyst
 
 A conversational data analyst built on the [Mistral Agents SDK](https://docs.mistral.ai/studio/agents/overview).
 You give it a link to a CSV file in your Google Drive and ask questions in plain language;
@@ -57,11 +57,11 @@ uv run --env-file .env agents deploy
 Then chat with the deployed agent by name:
 
 ```bash
-uv run --env-file .env agents chat drive-data-analyst
+uv run --env-file .env agents chat ticket-analyst
 ```
 
 or open it in Vibe Code Web at the URL printed by the deploy
-(`https://chat.mistral.ai/managed-agents/drive-data-analyst?source=agents_api`).
+(`https://chat.mistral.ai/managed-agents/ticket-analyst?source=agents_api`).
 
 ## Notes and limits
 
